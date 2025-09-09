@@ -15,16 +15,14 @@ from snap7 import util
 
 from his.models import DMMSnapLog, ErrMsg, BladePhaseLog, BladeRecord, AllBladePhaseStatistic
 
-
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
 
-
 # 需要监控的错误索引位 第一位索引为 1
-indices_to_monitor = np.array([5,26,27,28,30,32,33,34,35,37,38,39,40,42,43,44,45,48,49,50,52,53,
-                      54,55,60,61,63,64,68,78,79,80,81,82,83,103,128,129,133,135,139,
-                      143,145,147,149,150,151,152,153,154,155,156,157,158,159,160,161,
-                      162,163,165,167,169,178,179,180,188,189,190,191,192,193,194,195,
-                      196, 198,199,201,204,208,212,213])
+indices_to_monitor = np.array([5, 26, 27, 28, 30, 32, 33, 34, 35, 37, 38, 39, 40, 42, 43, 44, 45, 48, 49, 50, 52, 53,
+                               54, 55, 60, 61, 63, 64, 68, 78, 79, 80, 81, 82, 83, 103, 128, 129, 133, 135, 139,
+                               143, 145, 147, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161,
+                               162, 163, 165, 167, 169, 178, 179, 180, 188, 189, 190, 191, 192, 193, 194, 195,
+                               196, 198, 199, 201, 204, 208, 212, 213])
 
 error_map = {'1': {'id': '1001', 'type': 'Errors'},
              '2': {'id': '1002', 'type': 'Errors'},
@@ -34,7 +32,31 @@ error_map = {'1': {'id': '1001', 'type': 'Errors'},
              '6': {'id': '1006', 'type': 'Errors'},
              '7': {'id': '1007', 'type': 'Errors'},
              '8': {'id': '1008', 'type': 'Errors'},
-             '9': {'id': '1009', 'type': 'Warnings'}, '10': {'id': '1010', 'type': 'Warnings'}, '11': {'id': '1011', 'type': 'Errors'}, '12': {'id': '1012', 'type': 'Errors'}, '13': {'id': '1013', 'type': 'Warnings'}, '14': {'id': '1014', 'type': 'Warnings'}, '15': {'id': '1015', 'type': 'Warnings'}, '16': {'id': '1016', 'type': 'Warnings'}, '17': {'id': '1017', 'type': 'Warnings'}, '18': {'id': '1018', 'type': 'Warnings'}, '19': {'id': '1019', 'type': 'Warnings'}, '20': {'id': '1020', 'type': 'Warnings'}, '21': {'id': '1021', 'type': 'Warnings'}, '22': {'id': '1022', 'type': 'Warnings'}, '23': {'id': '1023', 'type': 'Warnings'}, '24': {'id': '1024', 'type': 'Warnings'}, '25': {'id': '1025', 'type': 'Warnings'}, '26': {'id': '1026', 'type': 'Errors'}, '27': {'id': '1027', 'type': 'Errors'}, '28': {'id': '1028', 'type': 'Errors'}, '29': {'id': '1029', 'type': 'Errors'}, '30': {'id': '1030', 'type': 'Warnings'}, '31': {'id': '1031', 'type': 'Errors'}, '32': {'id': '1032', 'type': 'Warnings'}, '33': {'id': '1033', 'type': 'Errors'}, '34': {'id': '1034', 'type': 'Errors'}, '35': {'id': '1035', 'type': 'Errors'}, '36': {'id': '1036', 'type': 'Errors'}, '37': {'id': '1037', 'type': 'Warnings'}, '38': {'id': '1038', 'type': 'Errors'}, '39': {'id': '1039', 'type': 'Errors'}, '40': {'id': '1040', 'type': 'Errors'}, '41': {'id': '1041', 'type': 'Errors'}, '42': {'id': '1042', 'type': 'Warnings'}, '43': {'id': '1043', 'type': 'Errors'}, '44': {'id': '1044', 'type': 'Errors'}, '45': {'id': '1045', 'type': 'Errors'}, '46': {'id': '1046', 'type': 'Errors'}, '47': {'id': '1047', 'type': 'Warnings'}, '48': {'id': '1048', 'type': 'Errors'}, '49': {'id': '1049', 'type': 'Errors'}, '50': {'id': '1050', 'type': 'Errors'}, '51': {'id': '1051', 'type': 'Errors'}, '52': {'id': '1052', 'type': 'Warnings'}, '53': {'id': '1053', 'type': 'Errors'}, '54': {'id': '1054', 'type': 'Errors'}, '55': {'id': '1055', 'type': 'Errors'}, '56': {'id': '1056', 'type': 'Errors'}, '57': {'id': '1057', 'type': 'Warnings'}, '58': {'id': '1058', 'type': 'Warnings'},
+             '9': {'id': '1009', 'type': 'Warnings'}, '10': {'id': '1010', 'type': 'Warnings'},
+             '11': {'id': '1011', 'type': 'Errors'}, '12': {'id': '1012', 'type': 'Errors'},
+             '13': {'id': '1013', 'type': 'Warnings'}, '14': {'id': '1014', 'type': 'Warnings'},
+             '15': {'id': '1015', 'type': 'Warnings'}, '16': {'id': '1016', 'type': 'Warnings'},
+             '17': {'id': '1017', 'type': 'Warnings'}, '18': {'id': '1018', 'type': 'Warnings'},
+             '19': {'id': '1019', 'type': 'Warnings'}, '20': {'id': '1020', 'type': 'Warnings'},
+             '21': {'id': '1021', 'type': 'Warnings'}, '22': {'id': '1022', 'type': 'Warnings'},
+             '23': {'id': '1023', 'type': 'Warnings'}, '24': {'id': '1024', 'type': 'Warnings'},
+             '25': {'id': '1025', 'type': 'Warnings'}, '26': {'id': '1026', 'type': 'Errors'},
+             '27': {'id': '1027', 'type': 'Errors'}, '28': {'id': '1028', 'type': 'Errors'},
+             '29': {'id': '1029', 'type': 'Errors'}, '30': {'id': '1030', 'type': 'Warnings'},
+             '31': {'id': '1031', 'type': 'Errors'}, '32': {'id': '1032', 'type': 'Warnings'},
+             '33': {'id': '1033', 'type': 'Errors'}, '34': {'id': '1034', 'type': 'Errors'},
+             '35': {'id': '1035', 'type': 'Errors'}, '36': {'id': '1036', 'type': 'Errors'},
+             '37': {'id': '1037', 'type': 'Warnings'}, '38': {'id': '1038', 'type': 'Errors'},
+             '39': {'id': '1039', 'type': 'Errors'}, '40': {'id': '1040', 'type': 'Errors'},
+             '41': {'id': '1041', 'type': 'Errors'}, '42': {'id': '1042', 'type': 'Warnings'},
+             '43': {'id': '1043', 'type': 'Errors'}, '44': {'id': '1044', 'type': 'Errors'},
+             '45': {'id': '1045', 'type': 'Errors'}, '46': {'id': '1046', 'type': 'Errors'},
+             '47': {'id': '1047', 'type': 'Warnings'}, '48': {'id': '1048', 'type': 'Errors'},
+             '49': {'id': '1049', 'type': 'Errors'}, '50': {'id': '1050', 'type': 'Errors'},
+             '51': {'id': '1051', 'type': 'Errors'}, '52': {'id': '1052', 'type': 'Warnings'},
+             '53': {'id': '1053', 'type': 'Errors'}, '54': {'id': '1054', 'type': 'Errors'},
+             '55': {'id': '1055', 'type': 'Errors'}, '56': {'id': '1056', 'type': 'Errors'},
+             '57': {'id': '1057', 'type': 'Warnings'}, '58': {'id': '1058', 'type': 'Warnings'},
              '59': {'id': '1059', 'type': 'Warnings'}, '60': {'id': '1060', 'type': 'Errors'},
              '61': {'id': '1061', 'type': 'Errors'}, '62': {'id': '1062', 'type': 'Errors'},
              '63': {'id': '1063', 'type': 'Errors'}, '64': {'id': '1064', 'type': 'Errors'},
@@ -43,9 +65,14 @@ error_map = {'1': {'id': '1001', 'type': 'Errors'},
              '69': {'id': '1069', 'type': 'Errors'}, '70': {'id': '1070', 'type': 'Errors'},
              '71': {'id': '1071', 'type': 'Errors'}, '72': {'id': '1072', 'type': 'Errors'},
              '73': {'id': '1073', 'type': 'Errors'}, '74': {'id': '1074', 'type': 'Errors'},
-             '75': {'id': '1075', 'type': 'Errors'}, '76': {'id': '1076', 'type': 'Errors'}, '77': {'id': '1077', 'type': 'Errors'}, '78': {'id': '1078', 'type': 'Errors'}, '79': {'id': '1079', 'type': 'Errors'}, '80': {'id': '1080', 'type': 'Errors'}, '81': {'id': '1081', 'type': 'Errors'}, '82': {'id': '1082', 'type': 'Errors'},
+             '75': {'id': '1075', 'type': 'Errors'}, '76': {'id': '1076', 'type': 'Errors'},
+             '77': {'id': '1077', 'type': 'Errors'}, '78': {'id': '1078', 'type': 'Errors'},
+             '79': {'id': '1079', 'type': 'Errors'}, '80': {'id': '1080', 'type': 'Errors'},
+             '81': {'id': '1081', 'type': 'Errors'}, '82': {'id': '1082', 'type': 'Errors'},
              '83': {'id': '1083', 'type': 'Errors'}, '84': {'id': '1084', 'type': 'Errors'},
-             '85': {'id': '1085', 'type': 'Errors'}, '86': {'id': '1086', 'type': 'Errors'}, '87': {'id': '1087', 'type': 'Errors'}, '88': {'id': '1088', 'type': 'Errors'}, '89': {'id': '1089', 'type': 'Errors'}, '90': {'id': '1090', 'type': 'Errors'},
+             '85': {'id': '1085', 'type': 'Errors'}, '86': {'id': '1086', 'type': 'Errors'},
+             '87': {'id': '1087', 'type': 'Errors'}, '88': {'id': '1088', 'type': 'Errors'},
+             '89': {'id': '1089', 'type': 'Errors'}, '90': {'id': '1090', 'type': 'Errors'},
              '91': {'id': '1091', 'type': 'Errors'}, '92': {'id': '1092', 'type': 'Errors'},
              '93': {'id': '1093', 'type': 'Errors'}, '94': {'id': '1094', 'type': 'Errors'},
              '95': {'id': '1095', 'type': 'Errors'}, '96': {'id': '1096', 'type': 'Errors'},
@@ -56,11 +83,58 @@ error_map = {'1': {'id': '1001', 'type': 'Errors'},
              '104': {'id': '1104', 'type': 'Errors'}, '105': {'id': '1105', 'type': 'Warnings'},
              '106': {'id': '1106', 'type': 'Warnings'}, '107': {'id': '1107', 'type': 'Errors'},
              '108': {'id': '1108', 'type': 'Errors'}, '109': {'id': '1109', 'type': 'Warnings'},
-             '110': {'id': '1110', 'type': 'Warnings'}, '111': {'id': '1111', 'type': 'Warnings'}, '112': {'id': '1112', 'type': 'Warnings'}, '113': {'id': '1113', 'type': 'Warnings'}, '114': {'id': '1114', 'type': 'Warnings'}, '115': {'id': '1115', 'type': 'Warnings'}, '116': {'id': '1116', 'type': 'Warnings'}, '117': {'id': '1117', 'type': 'Warnings'}, '118': {'id': '1118', 'type': 'Warnings'}, '119': {'id': '1119', 'type': 'Warnings'}, '120': {'id': '1120', 'type': 'Warnings'}, '121': {'id': '1121', 'type': 'Warnings'}, '122': {'id': '1122', 'type': 'Warnings'}, '123': {'id': '1123', 'type': 'Warnings'}, '124': {'id': '1124', 'type': 'Warnings'}, '125': {'id': '1125', 'type': 'Errors'}, '126': {'id': '1126', 'type': 'Errors'}, '127': {'id': '1127', 'type': 'Errors'}, '128': {'id': '1128', 'type': 'Warnings'},
+             '110': {'id': '1110', 'type': 'Warnings'}, '111': {'id': '1111', 'type': 'Warnings'},
+             '112': {'id': '1112', 'type': 'Warnings'}, '113': {'id': '1113', 'type': 'Warnings'},
+             '114': {'id': '1114', 'type': 'Warnings'}, '115': {'id': '1115', 'type': 'Warnings'},
+             '116': {'id': '1116', 'type': 'Warnings'}, '117': {'id': '1117', 'type': 'Warnings'},
+             '118': {'id': '1118', 'type': 'Warnings'}, '119': {'id': '1119', 'type': 'Warnings'},
+             '120': {'id': '1120', 'type': 'Warnings'}, '121': {'id': '1121', 'type': 'Warnings'},
+             '122': {'id': '1122', 'type': 'Warnings'}, '123': {'id': '1123', 'type': 'Warnings'},
+             '124': {'id': '1124', 'type': 'Warnings'}, '125': {'id': '1125', 'type': 'Errors'},
+             '126': {'id': '1126', 'type': 'Errors'}, '127': {'id': '1127', 'type': 'Errors'},
+             '128': {'id': '1128', 'type': 'Warnings'},
              '129': {'id': '1129', 'type': 'Errors'}, '130': {'id': '1130', 'type': 'Errors'},
-             '131': {'id': '1131', 'type': 'Errors'}, '132': {'id': '1132', 'type': 'Errors'}, '133': {'id': '1133', 'type': 'Errors'}, '134': {'id': '1134', 'type': 'Errors'}, '135': {'id': '1135', 'type': 'Warnings'}, '136': {'id': '1136', 'type': 'Errors'}, '137': {'id': '1137', 'type': 'Warnings'}, '138': {'id': '1138', 'type': 'Warnings'}, '139': {'id': '1139', 'type': 'Warnings'}, '140': {'id': '1140', 'type': 'Errors'}, '141': {'id': '1141', 'type': 'Warnings'}, '142': {'id': '1142', 'type': 'Errors'}, '143': {'id': '1143', 'type': 'Warnings'}, '144': {'id': '1144', 'type': 'Errors'}, '145': {'id': '1145', 'type': 'Errors'}, '146': {'id': '1146', 'type': 'Errors'}, '147': {'id': '1147', 'type': 'Errors'}, '148': {'id': '1148', 'type': 'Errors'}, '149': {'id': '1149', 'type': 'Errors'}, '150': {'id': '1150', 'type': 'Errors'}, '151': {'id': '1151', 'type': 'Errors'}, '152': {'id': '1152', 'type': 'Errors'}, '153': {'id': '1153', 'type': 'Errors'}, '154': {'id': '1154', 'type': 'Errors'}, '155': {'id': '1155', 'type': 'Errors'}, '156': {'id': '1156', 'type': 'Errors'}, '157': {'id': '1157', 'type': 'Errors'}, '158': {'id': '1158', 'type': 'Errors'}, '159': {'id': '1159', 'type': 'Errors'}, '160': {'id': '1160', 'type': 'Errors'}, '161': {'id': '1161', 'type': 'Errors'}, '162': {'id': '1162', 'type': 'Errors'}, '163': {'id': '1163', 'type': 'Errors'}, '164': {'id': '1164', 'type': 'Errors'}, '165': {'id': '1165', 'type': 'Errors'}, '166': {'id': '1166', 'type': 'Errors'}, '167': {'id': '1167', 'type': 'Errors'}, '168': {'id': '1168', 'type': 'Errors'}, '169': {'id': '1169', 'type': 'Errors'}, '170': {'id': '1170', 'type': 'Errors'}, '171': {'id': '1171', 'type': 'Warnings'}, '172': {'id': '1172', 'type': 'Warnings'}, '173': {'id': '1173', 'type': 'Warnings'}, '174': {'id': '1174', 'type': 'Warnings'}, '175': {'id': '1175', 'type': 'Errors'}, '176': {'id': '1176', 'type': 'Errors'}, '177': {'id': '1177', 'type': 'Errors'}, '178': {'id': '1178', 'type': 'Errors'}, '179': {'id': '1179', 'type': 'Errors'}, '180': {'id': '1180', 'type': 'Errors'}, '181': {'id': '1181', 'type': 'Errors'}, '182': {'id': '1182', 'type': 'Errors'}, '183': {'id': '1183', 'type': 'Errors'}, '184': {'id': '1184', 'type': 'Errors'}, '185': {'id': '1185', 'type': 'Errors'}, '186': {'id': '1186', 'type': 'Errors'}, '187': {'id': '1187', 'type': 'Errors'}, '188': {'id': '1188', 'type': 'Errors'}, '189': {'id': '1189', 'type': 'Errors'}, '190': {'id': '1190', 'type': 'Errors'}, '191': {'id': '1191', 'type': 'Errors'}, '192': {'id': '1192', 'type': 'Errors'}, '193': {'id': '1193', 'type': 'Errors'}, '194': {'id': '1194', 'type': 'Errors'}, '195': {'id': '1195', 'type': 'Errors'}, '196': {'id': '1196', 'type': 'Errors'}, '197': {'id': '1197', 'type': 'Errors'}, '198': {'id': '1198', 'type': 'Errors'}, '199': {'id': '1199', 'type': 'Errors'}, '200': {'id': '1200', 'type': 'Errors'}, '201': {'id': '1201', 'type': 'Errors'}, '202': {'id': '1202', 'type': 'Errors'}, '203': {'id': '1203', 'type': 'Warnings'}, '204': {'id': '1204', 'type': 'Errors'}, '205': {'id': '1205', 'type': 'Errors'}, '206': {'id': '1206', 'type': 'Warnings'},
+             '131': {'id': '1131', 'type': 'Errors'}, '132': {'id': '1132', 'type': 'Errors'},
+             '133': {'id': '1133', 'type': 'Errors'}, '134': {'id': '1134', 'type': 'Errors'},
+             '135': {'id': '1135', 'type': 'Warnings'}, '136': {'id': '1136', 'type': 'Errors'},
+             '137': {'id': '1137', 'type': 'Warnings'}, '138': {'id': '1138', 'type': 'Warnings'},
+             '139': {'id': '1139', 'type': 'Warnings'}, '140': {'id': '1140', 'type': 'Errors'},
+             '141': {'id': '1141', 'type': 'Warnings'}, '142': {'id': '1142', 'type': 'Errors'},
+             '143': {'id': '1143', 'type': 'Warnings'}, '144': {'id': '1144', 'type': 'Errors'},
+             '145': {'id': '1145', 'type': 'Errors'}, '146': {'id': '1146', 'type': 'Errors'},
+             '147': {'id': '1147', 'type': 'Errors'}, '148': {'id': '1148', 'type': 'Errors'},
+             '149': {'id': '1149', 'type': 'Errors'}, '150': {'id': '1150', 'type': 'Errors'},
+             '151': {'id': '1151', 'type': 'Errors'}, '152': {'id': '1152', 'type': 'Errors'},
+             '153': {'id': '1153', 'type': 'Errors'}, '154': {'id': '1154', 'type': 'Errors'},
+             '155': {'id': '1155', 'type': 'Errors'}, '156': {'id': '1156', 'type': 'Errors'},
+             '157': {'id': '1157', 'type': 'Errors'}, '158': {'id': '1158', 'type': 'Errors'},
+             '159': {'id': '1159', 'type': 'Errors'}, '160': {'id': '1160', 'type': 'Errors'},
+             '161': {'id': '1161', 'type': 'Errors'}, '162': {'id': '1162', 'type': 'Errors'},
+             '163': {'id': '1163', 'type': 'Errors'}, '164': {'id': '1164', 'type': 'Errors'},
+             '165': {'id': '1165', 'type': 'Errors'}, '166': {'id': '1166', 'type': 'Errors'},
+             '167': {'id': '1167', 'type': 'Errors'}, '168': {'id': '1168', 'type': 'Errors'},
+             '169': {'id': '1169', 'type': 'Errors'}, '170': {'id': '1170', 'type': 'Errors'},
+             '171': {'id': '1171', 'type': 'Warnings'}, '172': {'id': '1172', 'type': 'Warnings'},
+             '173': {'id': '1173', 'type': 'Warnings'}, '174': {'id': '1174', 'type': 'Warnings'},
+             '175': {'id': '1175', 'type': 'Errors'}, '176': {'id': '1176', 'type': 'Errors'},
+             '177': {'id': '1177', 'type': 'Errors'}, '178': {'id': '1178', 'type': 'Errors'},
+             '179': {'id': '1179', 'type': 'Errors'}, '180': {'id': '1180', 'type': 'Errors'},
+             '181': {'id': '1181', 'type': 'Errors'}, '182': {'id': '1182', 'type': 'Errors'},
+             '183': {'id': '1183', 'type': 'Errors'}, '184': {'id': '1184', 'type': 'Errors'},
+             '185': {'id': '1185', 'type': 'Errors'}, '186': {'id': '1186', 'type': 'Errors'},
+             '187': {'id': '1187', 'type': 'Errors'}, '188': {'id': '1188', 'type': 'Errors'},
+             '189': {'id': '1189', 'type': 'Errors'}, '190': {'id': '1190', 'type': 'Errors'},
+             '191': {'id': '1191', 'type': 'Errors'}, '192': {'id': '1192', 'type': 'Errors'},
+             '193': {'id': '1193', 'type': 'Errors'}, '194': {'id': '1194', 'type': 'Errors'},
+             '195': {'id': '1195', 'type': 'Errors'}, '196': {'id': '1196', 'type': 'Errors'},
+             '197': {'id': '1197', 'type': 'Errors'}, '198': {'id': '1198', 'type': 'Errors'},
+             '199': {'id': '1199', 'type': 'Errors'}, '200': {'id': '1200', 'type': 'Errors'},
+             '201': {'id': '1201', 'type': 'Errors'}, '202': {'id': '1202', 'type': 'Errors'},
+             '203': {'id': '1203', 'type': 'Warnings'}, '204': {'id': '1204', 'type': 'Errors'},
+             '205': {'id': '1205', 'type': 'Errors'}, '206': {'id': '1206', 'type': 'Warnings'},
              '207': {'id': '1207', 'type': 'Errors'}, '208': {'id': '1208', 'type': 'Errors'},
-             '209': {'id': '1209', 'type': 'Errors'}, '210': {'id': '1210', 'type': 'Warnings'}, '211': {'id': '1211', 'type': 'Errors'}, '212': {'id': '1212', 'type': 'Errors'},
+             '209': {'id': '1209', 'type': 'Errors'}, '210': {'id': '1210', 'type': 'Warnings'},
+             '211': {'id': '1211', 'type': 'Errors'}, '212': {'id': '1212', 'type': 'Errors'},
              '213': {'id': '1213', 'type': 'Errors'}, '214': {'id': '1214', 'type': 'Errors'}}
 
 
@@ -88,7 +162,6 @@ class PLCHandler:
                 # raise ConnectionError("Failed to connect to PLC.")
         except Exception as e:
             self.plcLog.error(f"snap7连接plc失败，报错:{e}")
-
 
     # 解析数据
     @staticmethod
@@ -134,7 +207,7 @@ class PLCHandler:
 
         # PowerStatus (Byte)
         idx = 113
-        res_data['PowerStatus'] =util.get_byte(data[idx:idx + 1], 0)
+        res_data['PowerStatus'] = util.get_byte(data[idx:idx + 1], 0)
 
         # DoorsStatus (Byte)
         idx = 114
@@ -405,20 +478,22 @@ class PLCHandler:
         binary_list = np.array(binary_representation)
         binary_list = np.array([int(bit) for binary in binary_list for bit in binary])
         all_errors = np.where(binary_list == 1)[0]
-
+        if len(binary_list) == 0:
+            binary_list = np.array([0 for i in range(320)])
         # 得到之前的二进制数组数据
         old_list_json = redis_client.get("alarm_monitoring_list")
-
         if not old_list_json:
             old_list = np.array([0 for i in range(320)])
         else:
             binary_list_as_list = json.loads(old_list_json)
-            old_list = np.array(binary_list_as_list, dtype=int)
+            if not binary_list_as_list:
+                old_list = np.array([0 for i in range(320)])
+            else:
+                old_list = np.array(binary_list_as_list, dtype=int)
 
         # 更新redis中的缓存
         new_list_json = json.dumps(binary_list.tolist())
         redis_client.set("alarm_monitoring_list", new_list_json)
-
         all_changed = (old_list == 0) & (binary_list == 1)
         all_changed_list = np.where(all_changed)[0]
 
@@ -431,7 +506,6 @@ class PLCHandler:
         # 输出变化
         return np.any(changed), monitor_changed_list.tolist(), all_changed_list.tolist(), all_errors.tolist()
 
-
     # 存储快照函数
     def monitor_record_snap(self, res_data):
         # 将data以json字符串的形式存入数据库中
@@ -443,7 +517,6 @@ class PLCHandler:
         self.taskLog.info(f"快照存储： 快照ID-->{snap_log.id}， 快照内容-->{snap_str}")
 
         return snap_log.id
-
 
     def process_error(self, res_data):
         blade_name = res_data.get("bladeName", '')
@@ -481,11 +554,10 @@ class PLCHandler:
 
         res_list = list()
         for i in all_error_list:
-            error_map_data = error_map.get(str(i+1))
+            error_map_data = error_map.get(str(i + 1))
             if error_map_data:
                 res_list.append(error_map_data)
         return res_list
-
 
     def get_str_from_redis(self, redis_key):
         redis_data = redis_client.get(redis_key)
@@ -493,7 +565,6 @@ class PLCHandler:
             return int(redis_data.decode())
         else:
             return redis_data
-
 
     # 执行各工序加工时间的统计
     def get_blade_phase_statistic(self, bladeName):
@@ -527,7 +598,6 @@ class PLCHandler:
             res_dic[record['phase']] = total_hours
 
         return res_dic
-
 
     # 对各加工阶段进行判断记录
     def blade_process_stage(self, data):
@@ -654,7 +724,7 @@ class PLCHandler:
         old_MillAutoStatus = self.get_str_from_redis("MillAutoStatus")
         if str(old_MillAutoStatus) != str(MillAutoStatus):  # 状态改变可能需要进行记录
             # Bit 1 使能状态， 0 = 未使能， 1 = 已使能
-            if str(MillAutoStatus) == "2":   # 由非铣磨状态进入铣磨状态
+            if str(MillAutoStatus) == "2":  # 由非铣磨状态进入铣磨状态
                 self.taskLog.info(f"叶片{bladeName}进入铣磨程序")
                 # 铣磨开始
                 blade_log = BladePhaseLog(
@@ -698,7 +768,8 @@ class PLCHandler:
                 phase = "钻孔"
             else:
                 # 错误状态
-                self.taskLog.error(f"钻孔/测试孔 程序错误: DrillAutoStatus={DrillAutoStatus}, MachineBaseStatus={MachineBaseStatus}")
+                self.taskLog.error(
+                    f"钻孔/测试孔 程序错误: DrillAutoStatus={DrillAutoStatus}, MachineBaseStatus={MachineBaseStatus}")
 
             # Bit 1 使能状态， 0 = 未使能， 1 = 已使能
             if str(DrillAutoStatus) == "2" and phase:  # 由非钻孔到钻孔
@@ -738,20 +809,60 @@ class PLCHandler:
             # a = time.time()
             a_time = time.perf_counter()
 
-            test = False
+            test = True
             if test:
-                res_data = {'ver': 17, 'plcDt': '2024-12-06T08:17:17.659000', 'userName': 'whf_test',
-                            'errorBytes': [223, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0,
-                                           64, 1, 0, 8, 0, 65, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                            'bladeName': 'new_test_blade', 'bladeType': 'TestType', 'bladeLength': 0.0,
-                            'bladeDiameter': 0.0, 'bladeHoles': 0, 'PowerStatus': 0, 'DoorsStatus': 1,
-                            'MachineBaseStatus': 0, 'ModeStatus': 24576,
-                            'MWheelStatus': 0, 'CutProgNum': 1, 'CutProgStep': 1,
-                            'CutAutoStatus': 0, 'MillProgNum': 1, 'MillProgStep': 1,
-                            'MillAutoStatus': 0, 'DrillProgNum': 1, 'DrillProgStep': 1,
-                            'DrillAutoStatus': 0, 'armStatus': 0,
-                            'armPositionTarg': 2.4224246552783113e-41, 'armPositionAct': 0.0,
-                            'armPositionMot': 2.410934007870848e-41, 'armSpeed': -9.111328712252538e-33}
+                # res_data = {'ver': 17, 'plcDt': '2024-12-06T08:17:17.659000', 'userName': 'whf_test',
+                #             'errorBytes': [223, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0,
+                #                            64, 1, 0, 8, 0, 65, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                #             'bladeName': 'new_test_blade', 'bladeType': 'TestType', 'bladeLength': 0.0,
+                #             'bladeDiameter': 0.0, 'bladeHoles': 0, 'PowerStatus': 0, 'DoorsStatus': 1,
+                #             'MachineBaseStatus': 0, 'ModeStatus': 24576,
+                #             'MWheelStatus': 0, 'CutProgNum': 1, 'CutProgStep': 1,
+                #             'CutAutoStatus': 0, 'MillProgNum': 1, 'MillProgStep': 1,
+                #             'MillAutoStatus': 0, 'DrillProgNum': 1, 'DrillProgStep': 1,
+                #             'DrillAutoStatus': 0, 'armStatus': 0,
+                #             'armPositionTarg': 2.4224246552783113e-41, 'armPositionAct': 0.0,
+                #             'armPositionMot': 2.410934007870848e-41, 'armSpeed': -9.111328712252538e-33}
+                #
+
+                res_data = {"ver": 17, "plcDt": "2025-02-18T02:36:09.267000", "userName": "",
+                            "errorBytes": [0, 123, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                            "bladeName": "", "bladeType": "",
+                            "bladeLength": 0.0, "bladeDiameter": 0.0, "bladeHoles": 0, "PowerStatus": 1,
+                            "DoorsStatus": 1, "MachineBaseStatus": 127,
+                            "ModeStatus": 1, "MWheelStatus": 3, "CutProgNum": 1, "CutProgStep": 1, "CutAutoStatus": 0,
+                            "MillProgNum": 1, "MillProgStep": 1,
+                            "MillAutoStatus": 0, "DrillProgNum": 1, "DrillProgStep": 1, "DrillAutoStatus": 0,
+                            "armStatus": 2, "armPositionTarg": 1.0,
+                            "armPositionAct": 2.0429999828338623, "armPositionMot": 2.0429999828338623,
+                            "armSpeed": 0.019816609099507332, "cutStatus": 0,
+                            "cutFeedTarget": 149.8000030517578, "cutFeedPosition": 150.0, "cutFeedSpeed": 0.0,
+                            "cutSpindleSpeed": 0.0, "cutSpindlePower": 0.0,
+                            "millStatus": 0, "millFeedTarget": 149.8000030517578, "millFeedPosition": 149.9969940185547,
+                            "millFeedSpeed": 0.0,
+                            "millSpindleSpeed": 0.0, "millSpindlePower": 0.0, "radial1Status": 0,
+                            "radial1FeedTarget": 299.79998779296875,
+                            "radial1FeedPosition": 299.9949951171875, "radial1FeedSpeed": 0.0,
+                            "radial1SpindleSpeed": 0.0, "radial1SpindlePower": 0.0,
+                            "radial2Status": 0, "radial2FeedTarget": 299.79998779296875,
+                            "radial2FeedPosition": 299.9949951171875, "radial2FeedSpeed": 0.0,
+                            "radial2SpindleSpeed": 0.0, "radial2SpindlePower": 0.0, "axial1Status": 0,
+                            "axial1FeedTarget": 79.80000305175781,
+                            "axial1FeedPosition": 80.00199890136719, "axial1FeedSpeed": 0.0, "axial1SpindleSpeed": 0.0,
+                            "axial1SpindlePower": 0.0,
+                            "axial2Status": 0, "axial2FeedTarget": 79.80000305175781,
+                            "axial2FeedPosition": 79.98999786376953, "axial2FeedSpeed": 0.0,
+                            "axial2SpindleSpeed": 0.0, "axial2SpindlePower": 0.0, "axial3Status": 0,
+                            "axial3FeedTarget": 0.0, "axial3FeedPosition": 0.0,
+                            "axial3FeedSpeed": 0.0, "axial3SpindleSpeed": 0.0, "axial3SpindlePower": 0.0,
+                            "mill2Status": 0, "mill2FeedTarget": 0.0,
+                            "mill2FeedPosition": 0.0, "mill2FeedSpeed": 0.0, "machineBaseStatus_1": 0,
+                            "machineBaseTarget": -650.0,
+                            "machineBasePosition": -650.0, "machineBaseSpeed": 0.0, "clampXStatus": 0,
+                            "clampXTarget": 79.80000305175781,
+                            "clampXPosition": 60.034000396728516, "clampXSpeed": 0.0, "clampYStatus": 0,
+                            "clampYTarget": 79.80000305175781,
+                            "clampYPosition": 79.9990005493164, "clampYSpeed": 0.0}
             else:
                 res_data = self.get_plc_data()
 
@@ -770,7 +881,7 @@ class PLCHandler:
 
             # b = time.time()
             b_time = time.perf_counter()
-            self.taskLog.debug(f"定时任务耗时：{b_time-a_time}")
+            self.taskLog.debug(f"定时任务耗时：{b_time - a_time}")
             # print(f"定时任务耗时：{b_time-a_time}")
         except RuntimeError as e:
             self.taskLog.error(f"获取信息出错: {e}")
@@ -783,9 +894,8 @@ def start_scheduler():
     scheduler = BackgroundScheduler()
     plc_obj = PLCHandler()
     # 添加一个每秒运行一次的任务
-    # scheduler.add_job(fetch_data, IntervalTrigger(seconds=1), id='fetch_data_job', replace_existing=True)
-    scheduler.add_job(plc_obj.obtain_plc_data_regularly, IntervalTrigger(seconds=1), id='obtain_plc_data_regularly', replace_existing=True)
+    scheduler.add_job(plc_obj.obtain_plc_data_regularly, IntervalTrigger(seconds=1), id='obtain_plc_data_regularly',
+                      replace_existing=True, max_instances=1, coalesce=True)
 
     # 启动调度器
     scheduler.start()
-    # print("Scheduler started")

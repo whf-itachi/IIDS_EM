@@ -30,10 +30,10 @@ config.read(config_file_path)
 SECRET_KEY = 'django-insecure-6#1s)2xvz-n@5(%16ewkb$wls*xbfg(o$&mgk^pp1tfumpj3%a'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
-ALLOWED_HOSTS = ['*']
-
+# ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
 # Application definition
 
@@ -237,22 +237,22 @@ LOGGING = {
         'plcLog': {  # 定时器plc数据刷新日志
             'handlers': ['plcLogQueue'],
             'level': 'DEBUG',
-            'propagate': True
+            'propagate': False
         },
         'taskLog': {  # 定时器逻辑处理过程日志
             'handlers': ['taskLogQueue'],
             'level': 'DEBUG',
-            'propagate': True
+            'propagate': False
         },
         'programLog': {  # 程序日志
             'handlers': ['programLog'],
             'level': 'DEBUG',
-            'propagate': True
+            'propagate': False
         },
         'laserLog': {  # plc和激光扫描日志
             'handlers': ['laserLog'],
             'level': 'DEBUG',
-            'propagate': True
+            'propagate': False
         },
     },
 }

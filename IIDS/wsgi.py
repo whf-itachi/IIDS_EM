@@ -12,8 +12,6 @@ import os
 from django.core.wsgi import get_wsgi_application
 
 from IIDS import settings
-from tasks.task import start_scheduler
-
 
 
 # 启动日志监听器
@@ -56,8 +54,12 @@ def start_logging_listener():
 # 启动日志监听器
 start_logging_listener()
 
-# 启动 APScheduler
-start_scheduler()
+# 只在主进程（Django 启动进程）中启动定时任务
+if os.environ.get('RUN_MAIN'):
+    from tasks.task import start_scheduler
+
+    # 启动 APScheduler
+    start_scheduler()
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'IIDS.settings')
 
