@@ -1,0 +1,13 @@
+# 忽略配置文件
+*.ini
+
+# 忽略所有 .log 文件
+/log/
+*.log
+
+# 忽略所有目录下的 .pyc 文件
+*.pyc
+
+# 忽略 Django 迁移文件
+**/migrations/*.py
+**/migrations/*.pyc
