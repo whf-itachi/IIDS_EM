@@ -248,6 +248,9 @@ def blade_chart_image_upload(request):
             # 將收到的圖片信息保存到本地
             img_path = os.path.join(BASE_DIR, "report", 'temporary_img', f"{component_name}.png")
             print("......", img_path)
+            img_dir = os.path.dirname(img_path)
+            # 2. 创建文件夹（exist_ok=True 表示：若文件夹已存在，不报错；若不存在，自动创建，包括多级目录）
+            os.makedirs(img_dir, exist_ok=True)
             with open(img_path, 'wb') as f:
                 f.write(image_data)
 
@@ -255,7 +258,7 @@ def blade_chart_image_upload(request):
         # traceback.print_exc()  # 这将打印完整的错误栈
         response_data = {
             "code": 400,
-            "msg": "program error"
+            "msg": f"program error:{e}"
         }
         return JsonResponse(response_data)
     else:
@@ -519,8 +522,8 @@ def old_download_single_blade_report(request):
     page_content = {
         "report_name": ["REPORT", "on", "SINGLE BLADE"],
         "report_table": [
-                    ["Company Name:", "Senvion Wind Technology Pvt Ltd"],
-                    ["Serie Nr. :", "AGT_7979C/12_2"],
+                    ["Company Name:", "Suzlon Energy Limited"],
+                    ["Serie Nr. :", ""],
                     ["Batch Quantity:", "1"],
                     ["Total page:", ""],
                     ["Printing Time:", ""]
@@ -623,42 +626,45 @@ def add_component_image(elements, image_info):
 # 单叶片报告下载接口(异步操作优化版--未调到最优)
 @csrf_exempt
 async def download_single_blade_report(request):
-    # 解析请求数据
-    data = request.body.decode('utf-8')
-    json_data = json.loads(data)
-    blade_id = json_data.get("blade_id")  # 获取叶片id
-    component_image_list = json_data.get("image_list")  # 获取到组件图片名称
-    if component_image_list:
-        image_list = component_image_list
-    else:
-        # 异步获取图片数据
-        image_base64_list = await get_image_data(blade_id)
+    try:
+        # 解析请求数据
+        data = request.body.decode('utf-8')
+        json_data = json.loads(data)
+        blade_id = json_data.get("blade_id")  # 获取叶片id
+        component_image_list = json_data.get("image_list")  # 获取到组件图片名称
+        if component_image_list:
+            image_list = component_image_list
+        else:
+            # 异步获取图片数据
+            image_base64_list = await get_image_data(blade_id)
 
-        image_list = ["bladePhaseTable"]  # 只需存储图片名称，不要存储异步任务
-        tasks = []  # 存储所有异步任务
+            image_list = ["bladePhaseTable"]  # 只需存储图片名称，不要存储异步任务
+            tasks = []  # 存储所有异步任务
 
-        # 异步保存图片
-        for index, ibl in enumerate(image_base64_list):
-            task = async_save_image(ibl, f"sign_{index}")  # 获取任务
-            tasks.append(task)  # 添加任务到任务列表中
-            image_list.append(f"sign_{index}")
+            # 异步保存图片
+            for index, ibl in enumerate(image_base64_list):
+                task = async_save_image(ibl, f"sign_{index}")  # 获取任务
+                tasks.append(task)  # 添加任务到任务列表中
+                image_list.append(f"sign_{index}")
 
-        # 等待所有图片保存任务完成
-        await asyncio.gather(*tasks)
+            # 等待所有图片保存任务完成
+            await asyncio.gather(*tasks)
 
-    # 使用 sync_to_async 包装生成 PDF 的同步操作
-    a = time.time()
-    pdf_content = await generate_pdf(blade_id, image_list)
-    b = time.time()
-    print(b -a , " generate pdf times")
-    # 返回 PDF 数据
-    response = HttpResponse(pdf_content, content_type='application/pdf')
-    now = datetime.now()
-    timestamp = now.strftime("%Y%m%d_%H%M%S")
-    filename = f"SignalBladeReport_{timestamp}.pdf"
-    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        # 使用 sync_to_async 包装生成 PDF 的同步操作
+        a = time.time()
+        pdf_content = await generate_pdf(blade_id, image_list)
+        b = time.time()
+        print(b -a , " generate pdf times")
+        # 返回 PDF 数据
+        response = HttpResponse(pdf_content, content_type='application/pdf')
+        now = datetime.now()
+        timestamp = now.strftime("%Y%m%d_%H%M%S")
+        filename = f"SignalBladeReport_{timestamp}.pdf"
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
 
-    return response
+        return response
+    except Exception as e:
+        return "error"
 
 
 # 生成 PDF 的同步函数
@@ -684,8 +690,8 @@ async def generate_pdf(blade_id, image_list):
     page_content = {
         "report_name": ["REPORT", "on", "SINGLE BLADE"],
         "report_table": [
-            ["Company Name:", "Senvion Wind Technology Pvt Ltd"],
-            ["Serie Nr. :", "AGT_7979C/12_2"],
+            ["Company Name:", "Suzlon Energy Limited"],
+            ["Serie Nr. :", ""],
             ["Batch Quantity:", "1"],
             ["Total page:", ""],
             ["Printing Time:", ""]
@@ -724,9 +730,9 @@ async def generate_pdf(blade_id, image_list):
     page_content = {
         "report_name": ["REPORT", "on", "SINGLE BLADE"],
         "report_table": [
-            ["Company Name:", "Senvion Wind Technology Pvt Ltd"],
+            ["Company Name:", "Suzlon Energy Limited"],
             ["BladeID:", blade_id],
-            ["Serie Nr. :", "AGT_7979C/12_2"],
+            ["Serie Nr. :", ""],
             ["Batch Quantity:", "1"],
             ["Total page:", total_pages],
             ["Printing date：", datetime.now().strftime('%Y-%m-%d %H:%M:%S')]
@@ -828,9 +834,9 @@ def download_blade_type_report(request):
     page_content = {
         "report_name": ["REPORT", "on", "BLADE TYPE"],
         "report_table": [
-            ["Company Name:", "Senvion Wind Technology Pvt Ltd"],
+            ["Company Name:", "Suzlon Energy Limited"],
             ["Blade Type: ", blade_type],
-            ["Serie Nr. :", "AGT_7979C/12_2"],
+            ["Serie Nr. :", ""],
             ["Batch Quantity:", "1"],
             ["Total page:", total_pages],
             ["Time range: ", f"{start_time_str} - {end_time_str}"],
@@ -922,9 +928,9 @@ def download_flatness_report(request):
     page_content = {
         "report_name": ["REPORT", "on", "Flatness"],
         "report_table": [
-            ["Company Name:", "Senvion Wind Technology Pvt Ltd"],
+            ["Company Name:", "Suzlon Energy Limited"],
             ["BladeID:", blade_id],
-            ["Serie Nr. :", "AGT_7979C/12_2"],
+            ["Serie Nr. :", ""],
             ["Batch Quantity:", "1"],
             ["Total page:", total_pages],
             ["Printing date：", datetime.now().strftime('%Y-%m-%d %H:%M:%S')]
@@ -1159,7 +1165,7 @@ def create_first_page_content(elements, page_content=None):
     elements.append(Spacer(1, 50))  # 1英寸的宽度，24点的垂直间距
 
     # 客户logo
-    image_path = os.path.join(BASE_DIR, "statics", 'image', "agent_logo.png")
+    image_path = os.path.join(BASE_DIR, "statics", 'image', "SUZLON.png")
     img = Image(image_path, width=350, height=100)
     elements.append(img)
 
