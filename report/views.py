@@ -369,6 +369,9 @@ def user_login_chart_upload(request):
             print(image_data)
             # 將收到的圖片信息保存到本地
             img_path = os.path.join(BASE_DIR, "report", 'temporary_img', "user_login_chart.png")
+            img_dir = os.path.dirname(img_path)
+            # 2. 创建文件夹（exist_ok=True 表示：若文件夹已存在，不报错；若不存在，自动创建，包括多级目录）
+            os.makedirs(img_dir, exist_ok=True)
             with open(img_path, 'wb') as f:
                 f.write(image_data)
 
