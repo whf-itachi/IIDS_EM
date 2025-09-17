@@ -1,6 +1,8 @@
 # scheduler.py
 import json
 import logging
+import os
+import re
 
 import redis
 import snap7
@@ -138,6 +140,31 @@ error_map = {'1': {'id': '1001', 'type': 'Errors'},
              '213': {'id': '1213', 'type': 'Errors'}, '214': {'id': '1214', 'type': 'Errors'}}
 
 
+# ---------------------------- 测试用 ----------------------------------
+_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'plc_processed.log')
+_json_re = re.compile(r'plc data:\s*({.+})')
+
+def _line_generator(path):
+    """无限循环逐行读取文件，读完一轮就重新打开。"""
+    # while True:
+    with open(path, 'r', encoding='utf-8') as f:
+        for line in f:
+            print(f"读取plcLog日志：{len(line)}")
+            yield line
+    # 可选：读完一轮稍微歇一下，避免 CPU 空转
+    time.sleep(0.01)
+
+_line_iter = _line_generator(_log_path)
+
+def next_plc_json():
+    """每次调用返回一行日志里 plc data 的 dict"""
+    while True:
+        line = next(_line_iter)
+        m = _json_re.search(line)
+        if m:
+            return json.loads(m.group(1))
+# ---------------------------- 测试用 ----------------------------------
+
 class PLCHandler:
     def __init__(self):
         """
@@ -147,6 +174,15 @@ class PLCHandler:
         self.plcLog = logging.getLogger('plcLog')
         self.taskLog = logging.getLogger('taskLog')
         self.create_connect()
+
+        self.blade_name = None
+        self.blade_type = None
+        self.blade_id = None
+
+        self.m_wheel_second_bit = 0
+        self.cut_second_bit = 0
+        self.drill_second_bit = 0
+        self.mill_second_bit = 0
 
     def create_connect(self):
         try:
@@ -460,19 +496,30 @@ class PLCHandler:
         try:
             # 读取数据块 DB160，偏移量为0，长度为356字节
             data_bcd = self.plc.db_read(160, 0, 358)
-            # print("Raw data:", data_bcd)
-
             # 解析数据并返回
             res_data = self.parse_struct(data_bcd)
-            self.plcLog.info(res_data)
         except Exception as e:
             self.plcLog.error(f"Get Plc error: {e}")
             raise RuntimeError("Failed to get PLC data.") from e
         else:
             return res_data
 
+    # 转换为二进制并获取第二个比特位（索引为1）
+    @staticmethod
+    def get_second_bit(value):
+        # 转为8位二进制字符串，取倒数第2位（第二个比特位）
+        binary_str = format(value, '08b')  # 确保8位，如3→'00000011'
+        return binary_str[-2]  # 第二个比特位（索引1）
+
     @staticmethod
     def monitor_error_alarm(binary_list):
+        """
+        监控告警类是否有变化:np.any(changed)
+        监控告警类变化列表：monitor_changed_list.tolist()
+        所有告警类变化列表：all_changed_list.tolist()
+        所有告警信息列表：all_errors.tolist()
+        """
+
         # 得到最新的二进制数组数据
         binary_representation = [format(byte, '08b')[::-1] for byte in binary_list]
         binary_list = np.array(binary_representation)
@@ -493,7 +540,7 @@ class PLCHandler:
 
         # 更新redis中的缓存
         new_list_json = json.dumps(binary_list.tolist())
-        redis_client.set("alarm_monitoring_list", new_list_json)
+        redis_client.set("alarm_monitoring_list", new_list_json, ex=3600*24*3)  # 3天后过期
         all_changed = (old_list == 0) & (binary_list == 1)
         all_changed_list = np.where(all_changed)[0]
 
@@ -514,17 +561,15 @@ class PLCHandler:
 
         # 保存数据
         snap_log.save()
-        self.taskLog.info(f"快照存储： 快照ID-->{snap_log.id}， 快照内容-->{snap_str}")
+        self.taskLog.info(f"快照存储： 快照ID-->{snap_log.id}")
 
         return snap_log.id
 
     def process_error(self, res_data):
-        blade_name = res_data.get("bladeName", '')
         error_list = res_data.get("errorBytes", list())
         # 监控是否有关键错误发生，有进行快照存
         monitor_flag, monitor_changed_list, all_changed_list, all_error_list = self.monitor_error_alarm(error_list)
 
-        self.taskLog.info(f"告警监控: {monitor_flag}, {monitor_changed_list}, {all_changed_list}, {all_error_list}")
         if monitor_flag:
             snap_id = self.monitor_record_snap(res_data)
         else:
@@ -542,11 +587,11 @@ class PLCHandler:
 
                     # 不仅是比特位为1 而且是由0变为1，进行日志存储
                     if num in monitor_changed_list:
-                        self.taskLog.info(f"告警消息存储:{blade_name},{msg_type},{msg_text},{snap_id}")
-                        error = ErrMsg(bladeName=blade_name, msgType=msg_type, msgText=msg_text, snapId=snap_id)
+                        self.taskLog.info(f"告警消息存储:{self.blade_name},{msg_type},{msg_text},{snap_id}")
+                        error = ErrMsg(bladeName=self.blade_name, msgType=msg_type, msgText=msg_text, snapId=snap_id)
                     else:
-                        self.taskLog.info(f"告警消息存储:{blade_name},{msg_type},{msg_text}")
-                        error = ErrMsg(bladeName=blade_name, msgType=msg_type, msgText=msg_text)
+                        self.taskLog.info(f"告警消息存储:{self.blade_name},{msg_type},{msg_text}")
+                        error = ErrMsg(bladeName=self.blade_name, msgType=msg_type, msgText=msg_text)
                     error.save()  # Saves to the database
             except Exception as e:
                 self.taskLog.error(f"process_error 发生错误: {e}")
@@ -558,13 +603,6 @@ class PLCHandler:
             if error_map_data:
                 res_list.append(error_map_data)
         return res_list
-
-    def get_str_from_redis(self, redis_key):
-        redis_data = redis_client.get(redis_key)
-        if redis_data:
-            return int(redis_data.decode())
-        else:
-            return redis_data
 
     # 执行各工序加工时间的统计
     def get_blade_phase_statistic(self, bladeName):
@@ -594,10 +632,66 @@ class PLCHandler:
             else:
                 total_hours = round(total_hours, 2)  # 如果有小数，保留两位小数
 
-            self.taskLog.info(f"工序: {record['phase']}，总加工时间: {total_hours}")
+            self.taskLog.info(f"工序: {record['phase']}，总加工时间: {total_hours} 小时")
             res_dic[record['phase']] = total_hours
 
         return res_dic
+
+    # 下架处理
+    def leave_shelves(self, force_log=False):
+        if force_log:
+            self.taskLog.warning(f"工序-叶片强制下架: {self.blade_name}")
+        else:
+            self.taskLog.info(f"工序-叶片下架: {self.blade_name}")
+
+        try:
+            # 下架
+            latest_log = BladePhaseLog.objects.filter(
+                bladeId=self.blade_name,
+                bladeType=self.blade_type,
+                phase='上架/下架',
+                endTime__isnull=True  # 查找 endTime 为 NULL 的记录
+            ).order_by('id').first()
+            # print(latest_log, "is latest log", self.blade_name, self.blade_type)
+            if latest_log:
+                # 如果找到了满足条件的记录，则更新 endTime
+                latest_log.endTime = timezone.now()
+                latest_log.save()
+
+                # 查找指定 bldname 的记录
+                blade = BladeRecord.objects.get(bldname=self.blade_name)
+                now = timezone.now()  # 获取当前时间
+
+                if blade.dtleave is None:
+                    blade.dtleave = now
+                    blade.save()
+
+                res_dict = self.get_blade_phase_statistic(self.blade_name)
+                # 创建新的统计记录
+                new_record = AllBladePhaseStatistic.objects.create(
+                    bladeId=self.blade_name,
+                    bladeType=self.blade_type,
+                    AutoCut=res_dict.get("切割", 0),
+                    AutoMill=res_dict.get("铣磨", 0),
+                    TestDrill=res_dict.get("测试孔", 0),
+                    AutoDrill=res_dict.get("钻孔", 0),
+                    AllTime=res_dict.get("上架/下架", 0)
+                )
+                if new_record:
+                    self.taskLog.info("叶片下架，创建统计记录成功")
+                else:
+                    self.taskLog.info("叶片下架，创建统计记录失败")
+            else:
+                self.taskLog.error(f"{self.blade_name}更新下架时间失败，未查到上架记录!")
+        except Exception as e:
+            self.taskLog.error(f"叶片下架处理报错: {e}")
+        finally:
+            self.m_wheel_second_bit = 0
+            self.cut_second_bit = 0
+            self.drill_second_bit = 0
+            self.mill_second_bit = 0
+            self.blade_name = None
+            self.blade_type = None
 
     # 对各加工阶段进行判断记录
     def blade_process_stage(self, data):
@@ -606,25 +700,41 @@ class PLCHandler:
         :param data:
         :return:
         """
-        self.taskLog.info(f"工序判断记录: {data}")
+
         now = timezone.now()  # 获取当前时间
 
         bladeName = data.get("bladeName")  # 叶片名称
         bladeType = data.get("bladeType")  # 叶片类型
-        MachineBaseStatus = data.get("MachineBaseStatus")  # 辅助判断
-        MWheelStatus = data.get("MWheelStatus")  # 测量轮状态，用以判断上下架
-        CutAutoStatus = data.get("CutAutoStatus")  # 切割
-        DrillAutoStatus = data.get("DrillAutoStatus")  # 钻孔， 测试孔
-        MillAutoStatus = data.get("MillAutoStatus")  # 铣磨
 
+        MachineBaseStatus = data.get("MachineBaseStatus", 0)  # 辅助判断
+        MWheelStatus = data.get("MWheelStatus", 0)  # 测量轮状态，用以判断上下架
+        CutAutoStatus = data.get("CutAutoStatus", 0)  # 切割
+        DrillAutoStatus = data.get("DrillAutoStatus", 0)  # 钻孔， 测试孔
+        MillAutoStatus = data.get("MillAutoStatus", 0)  # 铣磨
+
+        # 获取各状态的第二个比特位
+        # m_base_second_bit = self.get_second_bit(MachineBaseStatus)
+        m_wheel_second_bit = self.get_second_bit(MWheelStatus)
+        cut_second_bit = self.get_second_bit(CutAutoStatus)
+        drill_second_bit = self.get_second_bit(DrillAutoStatus)
+        mill_second_bit = self.get_second_bit(MillAutoStatus)
+
+        self.taskLog.info(f"上一次数据: {self.m_wheel_second_bit} - {self.cut_second_bit} "
+                          f"- {self.drill_second_bit} - {self.mill_second_bit}")
+        self.taskLog.info(f"现在次数据: {m_wheel_second_bit} - {cut_second_bit} - {drill_second_bit} - {mill_second_bit}")
         # 叶片上架下架的判断记录
-        old_MWheelStatus = self.get_str_from_redis("MWheelStatus")
+        if self.m_wheel_second_bit != m_wheel_second_bit:
+            self.taskLog.info(f"判断上下架: {self.m_wheel_second_bit} - {m_wheel_second_bit}")
+            if str(m_wheel_second_bit) == "1":  # Bit 0 测量轮状态， 0 = 未接触叶片， 1 = 已接触叶片
+                if bladeName and (bladeName != self.blade_name):
+                    if self.blade_name:
+                        self.leave_shelves(force_log=True)
 
-        if bool(old_MWheelStatus) != bool(MWheelStatus):
-            # 如果数值产生变化，表面状态发生变化需要进行记录
-            MWheelStatusByte = format(MWheelStatus, '08b')
-            if str(MWheelStatusByte[-1]) == "1":  # Bit 0 测量轮状态， 0 = 未接触叶片， 1 = 已接触叶片
-                self.taskLog.info(f"叶片上架: {bladeName}")
+                    self.taskLog.info(f"新叶片进入加工工序: {bladeName}")
+                    self.blade_name = bladeName
+                    self.blade_type = bladeType
+
+                self.taskLog.info(f"工序-叶片上架: {bladeName}")
                 # 上架
                 blade_log = BladePhaseLog(
                     bladeId=bladeName,
@@ -642,52 +752,29 @@ class PLCHandler:
                 )
             else:
                 self.taskLog.info(f"叶片下架: {bladeName}")
-                # 下架
-                latest_log = BladePhaseLog.objects.filter(
+                self.leave_shelves()
+
+            self.m_wheel_second_bit = m_wheel_second_bit
+        self.blade_name = bladeName
+        self.blade_type = bladeType
+        # 切割工序的判断记录
+        if str(self.cut_second_bit) != str(cut_second_bit):  # 如果数值产生变化，表面状态发生变化需要进行记录
+            self.taskLog.info(f"判断切割: {self.cut_second_bit} - {cut_second_bit}")
+
+            # Bit 1 使能状态， 0 = 未使能， 1 = 已使能
+            if str(cut_second_bit) == "1":  # 由切割状态改变为非切割状态
+                self.taskLog.info(f"工序-叶片{bladeName}进入切割程序")
+                # 切割开始
+                blade_log = BladePhaseLog(
                     bladeId=bladeName,
                     bladeType=bladeType,
-                    phase='上架/下架',
-                    endTime__isnull=True  # 查找 endTime 为 NULL 的记录
-                ).order_by('-startTime').first()
-
-                if latest_log:
-                    # 如果找到了满足条件的记录，则更新 endTime
-                    latest_log.endTime = timezone.now()
-                    latest_log.save()
-
-                    # 查找指定 bldname 的记录
-                    blade = BladeRecord.objects.get(bldname=bladeName)
-                    now = timezone.now()  # 获取当前时间
-                    # 更新 dtleave 字段
-                    blade.dtleave = now
-                    blade.save()  # 保存更新后的记录
-
-                    res_dict = self.get_blade_phase_statistic(bladeName)
-                    # 创建新的统计记录
-                    new_record = AllBladePhaseStatistic.objects.create(
-                        bladeId=bladeName,
-                        bladeType=bladeType,
-                        AutoCut=res_dict.get("切割", 0),
-                        AutoMill=res_dict.get("铣磨", 0),
-                        TestDrill=res_dict.get("测试孔", 0),
-                        AutoDrill=res_dict.get("钻孔", 0),
-                        AllTime=res_dict.get("上架/下架", 0)
-                    )
-                    if new_record:
-                        self.taskLog.info("叶片下架，创建统计记录成功")
-                    else:
-                        self.taskLog.info("叶片下架，创建统计记录失败")
-                else:
-                    self.taskLog.error(f"{bladeName}更新下架时间失败，未查到上架记录!")
-
-            redis_client.set("MWheelStatus", MWheelStatus)
-
-        # 切割工序的判断记录
-        old_CutAutoStatus = self.get_str_from_redis("CutAutoStatus")
-        if str(old_CutAutoStatus) != str(CutAutoStatus):  # 如果数值产生变化，表面状态发生变化需要进行记录
-            # Bit 1 使能状态， 0 = 未使能， 1 = 已使能
-            if str(old_CutAutoStatus) == "2":  # 由切割状态改变为非切割状态
-                self.taskLog.info(f"叶片{bladeName}进入切割程序")
+                    phase='切割',
+                    startTime=timezone.now()
+                )
+                # 保存实例到数据库
+                blade_log.save()
+            else :  # 由非切割状态转为切割状态
+                self.taskLog.info(f"工序-叶片{bladeName}结束切割程序")
                 # 切割结束
                 latest_log = BladePhaseLog.objects.filter(
                     bladeId=bladeName,
@@ -702,30 +789,19 @@ class PLCHandler:
                     latest_log.save()
                 else:
                     self.taskLog.error(f"{bladeName}更新切割结束时间失败，未查到正在进行的切割记录!")
-            elif str(CutAutoStatus) == "2":  # 由非切割状态转为切割状态
-                self.taskLog.info(f"叶片{bladeName}结束切割程序")
-                # 切割开始
-                blade_log = BladePhaseLog(
-                    bladeId=bladeName,
-                    bladeType=bladeType,
-                    phase='切割',
-                    startTime=timezone.now()
-                )
-                # 保存实例到数据库
-                blade_log.save()
-            else:
-                self.taskLog.warning(f"叶片{bladeName}切割程序中的非处理逻辑")
-                # 其他的情况暂时不做处理
-                pass
 
-            redis_client.set("CutAutoStatus", CutAutoStatus)
+            # else:
+            #     self.taskLog.warning(f"叶片{bladeName}切割程序中的非处理逻辑")
+
+            self.cut_second_bit = cut_second_bit
 
         # 铣磨工序的判断记录
-        old_MillAutoStatus = self.get_str_from_redis("MillAutoStatus")
-        if str(old_MillAutoStatus) != str(MillAutoStatus):  # 状态改变可能需要进行记录
+        if str(self.mill_second_bit) != str(mill_second_bit):  # 状态改变可能需要进行记录
+            self.taskLog.info(f"判断铣磨: {self.mill_second_bit} - {mill_second_bit}")
+
             # Bit 1 使能状态， 0 = 未使能， 1 = 已使能
-            if str(MillAutoStatus) == "2":  # 由非铣磨状态进入铣磨状态
-                self.taskLog.info(f"叶片{bladeName}进入铣磨程序")
+            if str(mill_second_bit) == "1":  # 由非铣磨状态进入铣磨状态
+                self.taskLog.info(f"工序-叶片{bladeName}进入铣磨程序")
                 # 铣磨开始
                 blade_log = BladePhaseLog(
                     bladeId=bladeName,
@@ -735,8 +811,8 @@ class PLCHandler:
                 )
                 # 保存实例到数据库
                 blade_log.save()
-            elif str(old_MillAutoStatus) == "2":  # 由铣磨状态退出
-                self.taskLog.info(f"叶片{bladeName}结束铣磨程序")
+            else:  # 由铣磨状态退出
+                self.taskLog.info(f"工序-叶片{bladeName}结束铣磨程序")
                 # 铣磨结束
                 latest_log = BladePhaseLog.objects.filter(
                     bladeId=bladeName,
@@ -751,16 +827,16 @@ class PLCHandler:
                     latest_log.save()
                 else:
                     self.taskLog.error(f"{bladeName}更新铣磨结束时间失败，未查到正在进行的铣磨记录!")
-            else:
-                # 不处理
-                self.taskLog.warning(f"叶片{bladeName}铣磨程序中的非处理逻辑")
-
-            redis_client.set("MillAutoStatus", MillAutoStatus)
+            # else:
+            #     # 不处理
+            #     self.taskLog.warning(f"叶片{bladeName}铣磨程序中的非处理逻辑")
+            self.mill_second_bit = mill_second_bit
 
         # 测试孔以及钻孔工序的判断记录
-        old_DrillAutoStatus = self.get_str_from_redis("DrillAutoStatus")
-        if str(old_DrillAutoStatus) != str(DrillAutoStatus):
+        if str(self.drill_second_bit) != str(drill_second_bit):
+            self.taskLog.info(f"判断测试孔以及钻孔: {self.drill_second_bit} - {drill_second_bit}")
             statusByte = format(MachineBaseStatus, '08b')
+            # self.taskLog.info(f"测试孔以及钻孔状态: {str(statusByte[-3])} - {str(statusByte[-6])}")
             phase = ''
             if str(statusByte[-3]) == "1":  # Bit 3 测试孔位
                 phase = "测试孔"
@@ -772,8 +848,8 @@ class PLCHandler:
                     f"钻孔/测试孔 程序错误: DrillAutoStatus={DrillAutoStatus}, MachineBaseStatus={MachineBaseStatus}")
 
             # Bit 1 使能状态， 0 = 未使能， 1 = 已使能
-            if str(DrillAutoStatus) == "2" and phase:  # 由非钻孔到钻孔
-                self.taskLog.info(f"叶片{bladeName}进入{phase}程序")
+            if str(drill_second_bit) == "1":  # 由非钻孔到钻孔
+                self.taskLog.info(f"工序-叶片{bladeName}进入{phase}程序")
                 # 铣磨开始
                 blade_log = BladePhaseLog(
                     bladeId=bladeName,
@@ -783,8 +859,8 @@ class PLCHandler:
                 )
                 # 保存实例到数据库
                 blade_log.save()
-            elif str(old_DrillAutoStatus) == "2" and phase:  # 由钻孔到非钻孔位
-                self.taskLog.info(f"叶片{bladeName}结束{phase}程序")
+            else:  # 由钻孔到非钻孔位
+                self.taskLog.info(f"工序-叶片{bladeName}结束{phase}程序")
                 # 铣磨结束
                 latest_log = BladePhaseLog.objects.filter(
                     bladeId=bladeName,
@@ -799,85 +875,54 @@ class PLCHandler:
                     latest_log.save()
                 else:
                     self.taskLog.error(f"{bladeName}更新{phase}结束时间失败，未查到正在进行的{phase}记录!")
-            else:
-                self.taskLog.warning(f"叶片{bladeName}{phase}孔程序中的非处理逻辑")
+            # else:
+            #     self.taskLog.warning(f"叶片{bladeName}{phase}孔程序中的非处理逻辑")
+            self.drill_second_bit = drill_second_bit
 
-            redis_client.set("DrillAutoStatus", DrillAutoStatus)
+    @staticmethod
+    def _json_errors_to_raw_bytes(err_list):
+        """
+        将 [{'id':'1008','type':'Errors'}, ...] 还原成 40 个 byte 的列表
+        规则：id 去掉前缀 '1' 后得到位号（1~214），对应 bit 置 1
+        """
+        bits = [0] * 320  # 40*8 = 320 bit
+        for item in err_list:
+            bit_id = int(item['id'])  # 1008
+            bit_idx = bit_id - 1000  # 8
+            if 1 <= bit_idx <= 214:
+                bits[bit_idx - 1] = 1  # 转成 0-base
+
+        # 每 8 位拼成一个 byte（小端，与 PLC 侧一致）
+        bytes_40 = []
+        for byte_n in range(40):
+            byte_val = 0
+            for bit_in_byte in range(8):
+                if bits[byte_n * 8 + bit_in_byte]:
+                    byte_val |= (1 << bit_in_byte)
+            bytes_40.append(byte_val)
+        return bytes_40
 
     def obtain_plc_data_regularly(self):
         try:
             # a = time.time()
             a_time = time.perf_counter()
 
-            test = True
+            test = False
             if test:
-                # res_data = {'ver': 17, 'plcDt': '2024-12-06T08:17:17.659000', 'userName': 'whf_test',
-                #             'errorBytes': [223, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0,
-                #                            64, 1, 0, 8, 0, 65, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                #             'bladeName': 'new_test_blade', 'bladeType': 'TestType', 'bladeLength': 0.0,
-                #             'bladeDiameter': 0.0, 'bladeHoles': 0, 'PowerStatus': 0, 'DoorsStatus': 1,
-                #             'MachineBaseStatus': 0, 'ModeStatus': 24576,
-                #             'MWheelStatus': 0, 'CutProgNum': 1, 'CutProgStep': 1,
-                #             'CutAutoStatus': 0, 'MillProgNum': 1, 'MillProgStep': 1,
-                #             'MillAutoStatus': 0, 'DrillProgNum': 1, 'DrillProgStep': 1,
-                #             'DrillAutoStatus': 0, 'armStatus': 0,
-                #             'armPositionTarg': 2.4224246552783113e-41, 'armPositionAct': 0.0,
-                #             'armPositionMot': 2.410934007870848e-41, 'armSpeed': -9.111328712252538e-33}
-                #
-
-                res_data = {"ver": 17, "plcDt": "2025-02-18T02:36:09.267000", "userName": "",
-                            "errorBytes": [0, 123, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                            "bladeName": "", "bladeType": "",
-                            "bladeLength": 0.0, "bladeDiameter": 0.0, "bladeHoles": 0, "PowerStatus": 1,
-                            "DoorsStatus": 1, "MachineBaseStatus": 127,
-                            "ModeStatus": 1, "MWheelStatus": 3, "CutProgNum": 1, "CutProgStep": 1, "CutAutoStatus": 0,
-                            "MillProgNum": 1, "MillProgStep": 1,
-                            "MillAutoStatus": 0, "DrillProgNum": 1, "DrillProgStep": 1, "DrillAutoStatus": 0,
-                            "armStatus": 2, "armPositionTarg": 1.0,
-                            "armPositionAct": 2.0429999828338623, "armPositionMot": 2.0429999828338623,
-                            "armSpeed": 0.019816609099507332, "cutStatus": 0,
-                            "cutFeedTarget": 149.8000030517578, "cutFeedPosition": 150.0, "cutFeedSpeed": 0.0,
-                            "cutSpindleSpeed": 0.0, "cutSpindlePower": 0.0,
-                            "millStatus": 0, "millFeedTarget": 149.8000030517578, "millFeedPosition": 149.9969940185547,
-                            "millFeedSpeed": 0.0,
-                            "millSpindleSpeed": 0.0, "millSpindlePower": 0.0, "radial1Status": 0,
-                            "radial1FeedTarget": 299.79998779296875,
-                            "radial1FeedPosition": 299.9949951171875, "radial1FeedSpeed": 0.0,
-                            "radial1SpindleSpeed": 0.0, "radial1SpindlePower": 0.0,
-                            "radial2Status": 0, "radial2FeedTarget": 299.79998779296875,
-                            "radial2FeedPosition": 299.9949951171875, "radial2FeedSpeed": 0.0,
-                            "radial2SpindleSpeed": 0.0, "radial2SpindlePower": 0.0, "axial1Status": 0,
-                            "axial1FeedTarget": 79.80000305175781,
-                            "axial1FeedPosition": 80.00199890136719, "axial1FeedSpeed": 0.0, "axial1SpindleSpeed": 0.0,
-                            "axial1SpindlePower": 0.0,
-                            "axial2Status": 0, "axial2FeedTarget": 79.80000305175781,
-                            "axial2FeedPosition": 79.98999786376953, "axial2FeedSpeed": 0.0,
-                            "axial2SpindleSpeed": 0.0, "axial2SpindlePower": 0.0, "axial3Status": 0,
-                            "axial3FeedTarget": 0.0, "axial3FeedPosition": 0.0,
-                            "axial3FeedSpeed": 0.0, "axial3SpindleSpeed": 0.0, "axial3SpindlePower": 0.0,
-                            "mill2Status": 0, "mill2FeedTarget": 0.0,
-                            "mill2FeedPosition": 0.0, "mill2FeedSpeed": 0.0, "machineBaseStatus_1": 0,
-                            "machineBaseTarget": -650.0,
-                            "machineBasePosition": -650.0, "machineBaseSpeed": 0.0, "clampXStatus": 0,
-                            "clampXTarget": 79.80000305175781,
-                            "clampXPosition": 60.034000396728516, "clampXSpeed": 0.0, "clampYStatus": 0,
-                            "clampYTarget": 79.80000305175781,
-                            "clampYPosition": 79.9990005493164, "clampYSpeed": 0.0}
+                res_data = next_plc_json()
+                res_data['errorBytes'] = self._json_errors_to_raw_bytes(res_data['errorBytes'])
             else:
                 res_data = self.get_plc_data()
 
+            # 还需要对各字段进行变化检查，有变化的要进行判断记录
+            self.blade_process_stage(res_data)
+
             # 进行告警错误处理
             error_data = self.process_error(res_data)
-            # print(error_data)
             res_data["errorBytes"] = error_data
             data = json.dumps(res_data)
             self.plcLog.info(f"plc data: {data}")
-            # print(data, "------------------")
-            # data = res_data
             redis_client.set("reportData", data)
-
-            # 还需要对各字段进行变化检查，有变化的要进行判断记录
-            self.blade_process_stage(res_data)
 
             # b = time.time()
             b_time = time.perf_counter()
@@ -885,8 +930,6 @@ class PLCHandler:
             # print(f"定时任务耗时：{b_time-a_time}")
         except RuntimeError as e:
             self.taskLog.error(f"获取信息出错: {e}")
-        else:
-            self.taskLog.info(f"else 获取到信息： {res_data}")
 
 
 # 创建调度器并启动任务
@@ -899,3 +942,4 @@ def start_scheduler():
 
     # 启动调度器
     scheduler.start()
+

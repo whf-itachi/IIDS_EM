@@ -1,4 +1,5 @@
 # coding=utf-8
+import datetime
 import json
 import redis
 
@@ -42,9 +43,22 @@ def get_blade_phase_log(request, blade_id):
         phase = record.get('phase')  # 假设 phase 是记录中的字段
         translated_phase = trans_dict.get(phase, phase)  # 如果映射中没有找到，保留原值
         record['phase'] = translated_phase
+
+        # 转换startTime格式
+        if record.get('startTime'):
+            # 解析ISO格式时间字符串为datetime对象
+            start_dt = datetime.datetime.fromisoformat(record['startTime'])
+            # 格式化为"YYYY-MM-DD HH:MM:SS"
+            record['startTime'] = start_dt.strftime('%Y-%m-%d %H:%M:%S')
+
+        # 转换endTime格式
+        if record.get('endTime'):
+            end_dt = datetime.datetime.fromisoformat(record['endTime'])
+            record['endTime'] = end_dt.strftime('%Y-%m-%d %H:%M:%S')
+
         translated_data.append(record)
 
-    # print(translated_data)
+    print(translated_data)
     # 准备响应数据
     data = {
         'data': translated_data,
@@ -65,7 +79,18 @@ def get_blade_statistic_data(request, blade_id):
         :return:
         """
     # 查找指定叶片的工序加工时间
-    blade = AllBladePhaseStatistic.objects.get(bladeId=blade_id)
+    try:
+        # 查找指定叶片的工序加工时间
+        blade = AllBladePhaseStatistic.objects.get(bladeId=blade_id)
+        print("获取到加工时间：", blade)
+    except AllBladePhaseStatistic.DoesNotExist:
+        # 准备响应数据，查询不到时返回错误信息
+        data = {
+            'data': None,
+            'code': 404,
+            'msg': f"叶片ID为 {blade_id} 的记录不存在"
+        }
+        return JsonResponse(data)
     print("获取到加工时间：", blade)
     # 查找指定叶片类型的所有叶片工序加工时间，并计算各工序的平均值
 

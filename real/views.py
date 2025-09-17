@@ -243,7 +243,17 @@ def real_user_log_data(request):
         # 序列化数据
         serializer = UserLogSerializer(instance=user_logs, many=True)
         res_list = serializer.data
+        # 格式化时间字段
+        for log in res_list:
+            # 处理登录时间
+            if 'login_time' in log and log['login_time']:
+                login_dt = datetime.fromisoformat(log['login_time'])
+                log['login_time'] = login_dt.strftime('%Y-%m-%d %H:%M:%S')
 
+            # 处理登出时间
+            if 'logout_time' in log and log['logout_time']:
+                logout_dt = datetime.fromisoformat(log['logout_time'])
+                log['logout_time'] = logout_dt.strftime('%Y-%m-%d %H:%M:%S')
         # 准备响应数据
         response_data = {
             'code': 200,
