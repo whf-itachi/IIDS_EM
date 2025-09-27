@@ -836,16 +836,15 @@ class PLCHandler:
         if str(self.drill_second_bit) != str(drill_second_bit):
             self.taskLog.info(f"判断测试孔以及钻孔: {self.drill_second_bit} - {drill_second_bit}")
             statusByte = format(MachineBaseStatus, '08b')
-            # self.taskLog.info(f"测试孔以及钻孔状态: {str(statusByte[-3])} - {str(statusByte[-6])}")
+            self.taskLog.info(f"测试孔以及钻孔状态: {str(statusByte[-4])} - {str(statusByte[-7])}")
             phase = ''
-            if str(statusByte[-3]) == "1":  # Bit 3 测试孔位
+            if str(statusByte[-4]) == "1":  # Bit 3 测试孔位
                 phase = "测试孔"
-            elif str(statusByte[-6]) == "1":  # 钻孔位
+            elif str(statusByte[-7]) == "1":  # 钻孔位
                 phase = "钻孔"
             else:
                 # 错误状态
-                self.taskLog.error(
-                    f"钻孔/测试孔 程序错误: DrillAutoStatus={DrillAutoStatus}, MachineBaseStatus={MachineBaseStatus}")
+                self.taskLog.error(f"钻孔/测试孔 程序错误: {statusByte}")
 
             # Bit 1 使能状态， 0 = 未使能， 1 = 已使能
             if str(drill_second_bit) == "1":  # 由非钻孔到钻孔
