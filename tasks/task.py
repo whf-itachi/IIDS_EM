@@ -506,10 +506,13 @@ class PLCHandler:
 
     # 转换为二进制并获取第二个比特位（索引为1）
     @staticmethod
-    def get_second_bit(value):
+    def get_second_bit(value, flag=""):
         # 转为8位二进制字符串，取倒数第2位（第二个比特位）
         binary_str = format(value, '08b')  # 确保8位，如3→'00000011'
-        return binary_str[-2]  # 第二个比特位（索引1）
+        if flag == "MWheelStatus":
+            return binary_str[-1]  # 上下架用第一个比特位（索引1）
+        else:
+            return binary_str[-2]  # 第二个比特位（索引1）
 
     @staticmethod
     def monitor_error_alarm(binary_list):
@@ -648,7 +651,7 @@ class PLCHandler:
             # 下架
             latest_log = BladePhaseLog.objects.filter(
                 bladeId=self.blade_name,
-                bladeType=self.blade_type,
+                # bladeType=self.blade_type,
                 phase='上架/下架',
                 endTime__isnull=True  # 查找 endTime 为 NULL 的记录
             ).order_by('id').first()
@@ -667,20 +670,26 @@ class PLCHandler:
                     blade.save()
 
                 res_dict = self.get_blade_phase_statistic(self.blade_name)
-                # 创建新的统计记录
-                new_record = AllBladePhaseStatistic.objects.create(
-                    bladeId=self.blade_name,
-                    bladeType=self.blade_type,
-                    AutoCut=res_dict.get("切割", 0),
-                    AutoMill=res_dict.get("铣磨", 0),
-                    TestDrill=res_dict.get("测试孔", 0),
-                    AutoDrill=res_dict.get("钻孔", 0),
-                    AllTime=res_dict.get("上架/下架", 0)
+                # 定义查询条件（根据 bladeId 判定记录是否存在）
+                defaults = {
+                    'bladeType': self.blade_type,
+                    'AutoCut': res_dict.get("切割", 0),
+                    'AutoMill': res_dict.get("铣磨", 0),
+                    'TestDrill': res_dict.get("测试孔", 0),
+                    'AutoDrill': res_dict.get("钻孔", 0),
+                    'AllTime': res_dict.get("上架/下架", 0)
+                }
+
+                # 执行 update_or_create：存在则更新，不存在则创建
+                record, created = AllBladePhaseStatistic.objects.update_or_create(
+                    bladeId=self.blade_name,  # 查询条件：根据 bladeId 查找记录
+                    defaults=defaults  # 要更新或创建的字段值
                 )
-                if new_record:
+
+                if created:
                     self.taskLog.info("叶片下架，创建统计记录成功")
                 else:
-                    self.taskLog.info("叶片下架，创建统计记录失败")
+                    self.taskLog.info("叶片下架，更新统计记录成功")
             else:
                 self.taskLog.error(f"{self.blade_name}更新下架时间失败，未查到上架记录!")
         except Exception as e:
@@ -714,7 +723,7 @@ class PLCHandler:
 
         # 获取各状态的第二个比特位
         # m_base_second_bit = self.get_second_bit(MachineBaseStatus)
-        m_wheel_second_bit = self.get_second_bit(MWheelStatus)
+        m_wheel_second_bit = self.get_second_bit(MWheelStatus, flag="MWheelStatus")
         cut_second_bit = self.get_second_bit(CutAutoStatus)
         drill_second_bit = self.get_second_bit(DrillAutoStatus)
         mill_second_bit = self.get_second_bit(MillAutoStatus)
@@ -722,6 +731,7 @@ class PLCHandler:
         self.taskLog.info(f"上一次数据: {self.m_wheel_second_bit} - {self.cut_second_bit} "
                           f"- {self.drill_second_bit} - {self.mill_second_bit}")
         self.taskLog.info(f"现在次数据: {m_wheel_second_bit} - {cut_second_bit} - {drill_second_bit} - {mill_second_bit}")
+        
         # 叶片上架下架的判断记录
         if self.m_wheel_second_bit != m_wheel_second_bit:
             self.taskLog.info(f"判断上下架: {self.m_wheel_second_bit} - {m_wheel_second_bit}")
@@ -736,14 +746,27 @@ class PLCHandler:
 
                 self.taskLog.info(f"工序-叶片上架: {bladeName}")
                 # 上架
-                blade_log = BladePhaseLog(
+                # 检查是否存在未结束的日志记录（endTime为空）
+                has_unfinished_log = BladePhaseLog.objects.filter(
                     bladeId=bladeName,
                     bladeType=bladeType,
                     phase='上架/下架',
-                    startTime=timezone.now()
-                )
-                # 保存实例到数据库
-                blade_log.save()
+                    endTime__isnull=True  # 关键条件：endTime为空表示未结束
+                ).exists()
+
+                if has_unfinished_log:
+                    # 存在未结束的记录，不创建新日志
+                    self.taskLog.info(f"叶片 {bladeName} 存在未结束的上架日志，不创建新记录")
+                else:
+                    # 不存在未结束的记录（或所有记录已结束），创建新日志
+                    blade_log = BladePhaseLog(
+                        bladeId=bladeName,
+                        bladeType=bladeType,
+                        phase='上架/下架',
+                        startTime=timezone.now()
+                    )
+                    blade_log.save()
+                    self.taskLog.info(f"叶片 {bladeName} 上架日志创建成功")
 
                 # 使用 get_or_create 尝试获取记录，若记录不存在则创建
                 BladeRecord.objects.get_or_create(
@@ -837,14 +860,11 @@ class PLCHandler:
             self.taskLog.info(f"判断测试孔以及钻孔: {self.drill_second_bit} - {drill_second_bit}")
             statusByte = format(MachineBaseStatus, '08b')
             self.taskLog.info(f"测试孔以及钻孔状态: {str(statusByte[-4])} - {str(statusByte[-7])}")
-            phase = ''
-            if str(statusByte[-4]) == "1":  # Bit 3 测试孔位
-                phase = "测试孔"
-            elif str(statusByte[-7]) == "1":  # 钻孔位
+            # if str(statusByte[-4]) == "1":  # Bit 3 测试孔位
+            if str(statusByte[-7]) == "1":  # 钻孔位
                 phase = "钻孔"
             else:
-                # 错误状态
-                self.taskLog.error(f"钻孔/测试孔 程序错误: {statusByte}")
+                phase = "测试孔"
 
             # Bit 1 使能状态， 0 = 未使能， 1 = 已使能
             if str(drill_second_bit) == "1":  # 由非钻孔到钻孔
