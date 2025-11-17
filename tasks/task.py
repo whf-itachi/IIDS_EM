@@ -141,18 +141,25 @@ error_map = {'1': {'id': '1001', 'type': 'Errors'},
 
 
 # ---------------------------- 测试用 ----------------------------------
-_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'plc_processed.log')
+_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'plc.log')
 _json_re = re.compile(r'plc data:\s*({.+})')
 
 def _line_generator(path):
-    """无限循环逐行读取文件，读完一轮就重新打开。"""
-    # while True:
-    with open(path, 'r', encoding='utf-8') as f:
-        for line in f:
-            print(f"读取plcLog日志：{len(line)}")
-            yield line
-    # 可选：读完一轮稍微歇一下，避免 CPU 空转
-    time.sleep(0.01)
+    """无限循环：文件读完一轮后，一直重复最后一行。"""
+    last_line = ''                       # 缓存最后一行
+    while True:                          # 外层循环：文件重新打开
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:               # 正常逐行读
+                last_line = line
+                print(f"读取plcLog日志：{len(line)}")
+                yield line
+
+        # 文件已读完，进入“复读”模式
+        print("日志文件已读到末尾，开始重复最后一行")
+        while True:
+            print(f"【重复】读取plcLog日志：{len(last_line)}")
+            time.sleep(1)
+            yield last_line
 
 _line_iter = _line_generator(_log_path)
 
@@ -671,13 +678,26 @@ class PLCHandler:
 
                 res_dict = self.get_blade_phase_statistic(self.blade_name)
                 # 定义查询条件（根据 bladeId 判定记录是否存在）
+                # defaults = {
+                #     'bladeType': self.blade_type,
+                #     'AutoCut': res_dict.get("切割", 0),
+                #     'AutoMill': res_dict.get("铣磨", 0),
+                #     'TestDrill': res_dict.get("测试孔", 0),
+                #     'AutoDrill': res_dict.get("钻孔", 0),
+                #     'AllTime': res_dict.get("上架/下架", 0)
+                # }
+                cut = res_dict.get("切割", 0)
+                mill = res_dict.get("铣磨", 0)
+                test = res_dict.get("测试孔", 0)
+                drill = res_dict.get("钻孔", 0)
+
                 defaults = {
                     'bladeType': self.blade_type,
-                    'AutoCut': res_dict.get("切割", 0),
-                    'AutoMill': res_dict.get("铣磨", 0),
-                    'TestDrill': res_dict.get("测试孔", 0),
-                    'AutoDrill': res_dict.get("钻孔", 0),
-                    'AllTime': res_dict.get("上架/下架", 0)
+                    'AutoCut': cut,
+                    'AutoMill': mill,
+                    'TestDrill': test,
+                    'AutoDrill': drill,
+                    'AllTime': cut + mill + test + drill,  # 四道工序合计
                 }
 
                 # 执行 update_or_create：存在则更新，不存在则创建
@@ -701,6 +721,20 @@ class PLCHandler:
             self.mill_second_bit = 0
             self.blade_name = None
             self.blade_type = None
+
+    def log_if_changed(self, prev_vals, curr_vals):
+        """
+        当任意值发生变化时记录日志
+        :param prev_vals: 上一次的值列表（如 [self.m_wheel_second_bit, ...]）
+        :param curr_vals: 当前的新值列表（如 [m_wheel_second_bit, ...]）
+        """
+        # 检查是否有任意值变化
+        if any(str(p) != str(c) for p, c in zip(prev_vals, curr_vals)):
+            # 构建日志内容
+            prev_str = " - ".join(map(str, prev_vals))
+            curr_str = " - ".join(map(str, curr_vals))
+            self.taskLog.info(f"上一次数据: {prev_str}")
+            self.taskLog.info(f"现在数据: {curr_str}")
 
     # 对各加工阶段进行判断记录
     def blade_process_stage(self, data):
@@ -728,9 +762,12 @@ class PLCHandler:
         drill_second_bit = self.get_second_bit(DrillAutoStatus)
         mill_second_bit = self.get_second_bit(MillAutoStatus)
 
-        self.taskLog.info(f"上一次数据: {self.m_wheel_second_bit} - {self.cut_second_bit} "
-                          f"- {self.drill_second_bit} - {self.mill_second_bit}")
-        self.taskLog.info(f"现在次数据: {m_wheel_second_bit} - {cut_second_bit} - {drill_second_bit} - {mill_second_bit}")
+        # 上一次的值列表
+        prev_vals = [self.m_wheel_second_bit, self.cut_second_bit, self.drill_second_bit, self.mill_second_bit]
+        # 当前的新值列表
+        curr_vals = [m_wheel_second_bit, cut_second_bit, drill_second_bit, mill_second_bit]
+        # 调用方法，只有变化时才记录
+        self.log_if_changed(prev_vals, curr_vals)
         
         # 叶片上架下架的判断记录
         if self.m_wheel_second_bit != m_wheel_second_bit:
@@ -749,7 +786,7 @@ class PLCHandler:
                 # 检查是否存在未结束的日志记录（endTime为空）
                 has_unfinished_log = BladePhaseLog.objects.filter(
                     bladeId=bladeName,
-                    bladeType=bladeType,
+                    # bladeType=bladeType,
                     phase='上架/下架',
                     endTime__isnull=True  # 关键条件：endTime为空表示未结束
                 ).exists()
